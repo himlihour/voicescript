@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: voicescript
+    runtime: python
+    buildCommand: "apt-get update && apt-get install -y ffmpeg && pip install -r requirements.txt"
+    startCommand: "gunicorn app:app --timeout 300 --workers 1"
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: WHISPER_MODEL
+        value: base

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+venv/
+.venv/
+env/
+
+# Whisper model cache (downloaded at runtime on Render)
+.cache/
+
+# Temp files
+*.tmp
+*.temp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Local FFmpeg binaries (Windows-only, NOT needed on Render)
+ffmpeg/
+ffmpeg.exe
+ffprobe.exe
+ffplay.exe

@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoiceScript — AI Video & Audio Transcription</title>
+  <meta name="description" content="Transcribe any video or audio file to text instantly with automatic language detection powered by OpenAI Whisper. Free, private, runs locally." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Animated background orbs -->
+  <div class="bg-orbs" aria-hidden="true">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
+
+  <div class="app-wrapper">
+
+    <!-- ── HEADER ── -->
+    <header class="header">
+      <div class="logo">
+        <span class="logo-icon">🎙️</span>
+        <span class="logo-text">VoiceScript</span>
+      </div>
+      <p class="tagline">AI-powered transcription · Auto language detection · 100% private</p>
+    </header>
+
+    <!-- ── MAIN CARD ── -->
+    <main class="main-card glass">
+
+      <!-- Upload Section -->
+      <section class="upload-section" id="uploadSection">
+        <h1 class="section-title">Drop your file to transcribe</h1>
+        <p class="section-sub">Supports MP4, MP3, WAV, MKV, WebM, M4A, OGG, FLAC, AAC, MOV &amp; more</p>
+
+        <!-- Drop Zone -->
+        <div class="drop-zone" id="dropZone" tabindex="0" role="button" aria-label="Click or drop file to upload">
+          <div class="drop-zone-inner">
+            <div class="drop-icon" id="dropIcon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </div>
+            <p class="drop-text" id="dropText">Drag &amp; drop your video or audio here</p>
+            <p class="drop-sub" id="dropSub">or click to browse files</p>
+            <div class="drop-file-info" id="dropFileInfo" style="display:none;">
+              <span class="file-icon">📄</span>
+              <span class="file-name" id="fileName"></span>
+              <span class="file-size" id="fileSize"></span>
+            </div>
+          </div>
+          <input type="file" id="fileInput" accept="video/*,audio/*,.mkv,.webm,.flac,.wav,.mp3,.m4a,.ogg,.aac,.wma" hidden />
+        </div>
+
+        <!-- Transcribe Button -->
+        <button class="btn-transcribe" id="btnTranscribe" disabled>
+          <span class="btn-icon">✨</span>
+          <span class="btn-label">Transcribe Now</span>
+        </button>
+      </section>
+
+      <!-- Processing Section (hidden by default) -->
+      <section class="processing-section hidden" id="processingSection">
+        <div class="waveform" id="waveform" aria-label="Processing audio">
+          <span></span><span></span><span></span><span></span><span></span>
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <p class="processing-title">Transcribing your file…</p>
+        <p class="processing-sub" id="processingFileName"></p>
+        <p class="processing-note">AI is listening · Auto detecting language</p>
+      </section>
+
+      <!-- Error Banner -->
+      <div class="error-banner hidden" id="errorBanner" role="alert">
+        <span class="error-icon">⚠️</span>
+        <span class="error-msg" id="errorMsg"></span>
+        <button class="error-close" id="errorClose" aria-label="Dismiss error">✕</button>
+      </div>
+
+    </main>
+
+    <!-- ── RESULT CARD ── -->
+    <section class="result-card glass hidden" id="resultCard">
+
+      <!-- Result Header -->
+      <div class="result-header">
+        <div class="result-title-row">
+          <h2 class="result-title">Transcript</h2>
+          <div class="result-badges">
+            <span class="badge badge-lang" id="langBadge" title="Detected Language">🌍 Detecting…</span>
+          </div>
+        </div>
+        <div class="result-meta" id="resultMeta"></div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs" role="tablist">
+        <button class="tab active" id="tabFull" role="tab" aria-selected="true" data-tab="full">Full Text</button>
+        <button class="tab" id="tabTimestamps" role="tab" aria-selected="false" data-tab="timestamps">With Timestamps</button>
+      </div>
+
+      <!-- Full Text Panel -->
+      <div class="tab-panel" id="panelFull">
+        <div class="transcript-box" id="transcriptFull"></div>
+      </div>
+
+      <!-- Timestamps Panel -->
+      <div class="tab-panel hidden" id="panelTimestamps">
+        <div class="segments-list" id="segmentsList"></div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="result-actions">
+        <button class="btn-action" id="btnCopy" title="Copy to clipboard">
+          <span>📋</span> Copy Text
+        </button>
+        <button class="btn-action" id="btnDownload" title="Download as .txt">
+          <span>⬇️</span> Download .txt
+        </button>
+        <button class="btn-action btn-secondary" id="btnReset" title="Transcribe another file">
+          <span>🔄</span> New File
+        </button>
+      </div>
+
+    </section>
+
+    <!-- ── FOOTER ── -->
+    <footer class="footer">
+      <p>Powered by <a href="https://github.com/openai/whisper" target="_blank" rel="noopener">OpenAI Whisper</a> · Runs 100% locally · No data leaves your machine</p>
+    </footer>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
