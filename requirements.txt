@@ -6,3 +6,4 @@ gunicorn==22.0.0
 numpy<2.0
 torch==2.2.2+cpu
 openai-whisper==20250625
+imageio-ffmpeg==0.5.1

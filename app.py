@@ -1,8 +1,28 @@
 import os
 import uuid
 import tempfile
+import gc
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+
+# --- Render ffmpeg Hack using imageio-ffmpeg ---
+try:
+    import imageio_ffmpeg
+    ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+    ffmpeg_dir = os.path.dirname(ffmpeg_path)
+    os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+    print(f"[OK] Injected ffmpeg path: {ffmpeg_dir}")
+except Exception as e:
+    print(f"[WARN] Failed to inject ffmpeg path via imageio-ffmpeg: {e}")
+
+# --- RAM Optimization for Render Free Tier (512MB limit) ---
+try:
+    import torch
+    torch.set_num_threads(1)  # Restrict to 1 CPU thread to avoid RAM spikes
+    print("[OK] Torch CPU threads limited to 1")
+except Exception as e:
+    print(f"[WARN] Failed to configure torch threads: {e}")
+
 import whisper
 
 app = Flask(__name__, static_folder=".", static_url_path="")
@@ -102,6 +122,8 @@ def transcribe():
         # Clean up temp file
         if os.path.exists(temp_path):
             os.remove(temp_path)
+        # Free memory
+        gc.collect()
 
 
 def format_time(seconds):
