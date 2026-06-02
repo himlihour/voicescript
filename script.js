@@ -18,6 +18,8 @@ const btnTranscribe    = document.getElementById("btnTranscribe");
 const uploadSection    = document.getElementById("uploadSection");
 const processingSection= document.getElementById("processingSection");
 const processingFileName = document.getElementById("processingFileName");
+const progressBar      = document.getElementById("progressBar");
+const progressPercent  = document.getElementById("progressPercent");
 
 const errorBanner      = document.getElementById("errorBanner");
 const errorMsg         = document.getElementById("errorMsg");
@@ -129,6 +131,35 @@ function handleFileSelect(file) {
 // ── Transcribe Button ─────────────────────────────────
 btnTranscribe.addEventListener("click", startTranscription);
 
+let progressInterval = null;
+
+function updateProgressBar(percent) {
+  progressBar.style.width = percent + "%";
+  progressPercent.textContent = percent;
+}
+
+function startProgressAnimation() {
+  let progress = 0;
+  clearInterval(progressInterval);
+  updateProgressBar(0);
+  
+  progressInterval = setInterval(() => {
+    // Gradually increase progress, slowing down as it approaches 90%
+    const increment = Math.random() * (100 - progress) * 0.02;
+    progress = Math.min(progress + increment, 90);
+    updateProgressBar(Math.floor(progress));
+  }, 300);
+}
+
+function completeProgress() {
+  clearInterval(progressInterval);
+  updateProgressBar(100);
+  // Keep it at 100% for a moment then reset
+  setTimeout(() => {
+    updateProgressBar(0);
+  }, 500);
+}
+
 async function startTranscription() {
   if (!selectedFile) return;
 
@@ -142,10 +173,14 @@ async function startTranscription() {
   formData.append("file", selectedFile);
 
   try {
+    startProgressAnimation();
+    
     const response = await fetch("/transcribe", {
       method: "POST",
       body: formData,
     });
+
+    completeProgress();
 
     const data = await response.json();
 
@@ -157,6 +192,8 @@ async function startTranscription() {
 
   } catch (err) {
     // Back to upload state on error
+    clearInterval(progressInterval);
+    updateProgressBar(0);
     processingSection.classList.add("hidden");
     uploadSection.classList.remove("hidden");
     showError(err.message || "Transcription failed. Is the Flask server running?");

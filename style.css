@@ -397,6 +397,43 @@ body {
   50%       { opacity: 0.2; }
 }
 
+/* ── Progress Bar ── */
+.progress-container {
+  width: 100%;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.progress-bar-wrapper {
+  width: 100%;
+  height: 8px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid rgba(139,92,246,0.25);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--accent-grad);
+  border-radius: 999px;
+  width: 0%;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 12px rgba(139,92,246,0.6);
+}
+
+.progress-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--accent-1);
+  min-width: 45px;
+  text-align: center;
+}
+
 /* ── Error Banner ── */
 .error-banner {
   display: flex;
