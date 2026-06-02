@@ -96,6 +96,8 @@ def transcribe():
             segments.append({
                 "start": format_time(start),
                 "end": format_time(end),
+                "start_raw": start,
+                "end_raw": end,
                 "text": text,
             })
 
@@ -131,6 +133,54 @@ def format_time(seconds):
     mins = int(seconds) // 60
     secs = int(seconds) % 60
     return f"{mins:02d}:{secs:02d}"
+
+
+def format_time_srt(seconds):
+    """Convert seconds float to SRT format (HH:MM:SS,mmm)."""
+    hours = int(seconds) // 3600
+    minutes = (int(seconds) % 3600) // 60
+    secs = int(seconds) % 60
+    millis = int((seconds - int(seconds)) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def generate_srt(segments):
+    """Generate SRT subtitle content from segments."""
+    srt_content = ""
+    for idx, seg in enumerate(segments, 1):
+        # Parse timestamp strings back to floats for SRT formatting
+        start_str = seg.get("start_raw", 0)
+        end_str = seg.get("end_raw", 0)
+        
+        start_srt = format_time_srt(start_str)
+        end_srt = format_time_srt(end_str)
+        text = seg.get("text", "").strip()
+        
+        srt_content += f"{idx}\n{start_srt} --> {end_srt}\n{text}\n\n"
+    
+    return srt_content.strip()
+
+
+@app.route("/download-srt", methods=["POST"])
+def download_srt():
+    """Generate and return SRT file for download."""
+    data = request.get_json()
+    segments = data.get("segments", [])
+    filename = data.get("filename", "transcript").replace(".json", "")
+    
+    if not segments:
+        return jsonify({"error": "No segments provided"}), 400
+    
+    try:
+        srt_content = generate_srt(segments)
+        
+        return {
+            "success": True,
+            "srt_content": srt_content,
+            "filename": f"{filename}.srt"
+        }
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

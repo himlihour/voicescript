@@ -38,11 +38,13 @@ const segmentsList     = document.getElementById("segmentsList");
 
 const btnCopy          = document.getElementById("btnCopy");
 const btnDownload      = document.getElementById("btnDownload");
+const btnDownloadSRT   = document.getElementById("btnDownloadSRT");
 const btnReset         = document.getElementById("btnReset");
 
 // ── State ───────────────────────────────────────────
 let selectedFile = null;
 let lastTranscript = "";
+let lastSegments   = [];
 let lastFilename   = "";
 
 // ── Language Code → Full Name Map ───────────────────
@@ -203,6 +205,7 @@ async function startTranscription() {
 // ── Render Result ─────────────────────────────────────
 function renderResult(data) {
   lastTranscript = data.transcript || "";
+  lastSegments   = data.segments || [];
   lastFilename   = selectedFile ? selectedFile.name.replace(/\.[^.]+$/, "") : "transcript";
 
   // Language badge
@@ -293,12 +296,49 @@ btnDownload.addEventListener("click", () => {
   URL.revokeObjectURL(url);
 });
 
+// ── Download as .srt ──────────────────────────────────
+btnDownloadSRT.addEventListener("click", async () => {
+  if (!lastSegments || lastSegments.length === 0) {
+    showError("No segments available for SRT export.");
+    return;
+  }
+  
+  try {
+    const response = await fetch("/download-srt", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        segments: lastSegments,
+        filename: lastFilename
+      })
+    });
+    
+    const data = await response.json();
+    
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Failed to generate SRT");
+    }
+    
+    // Download SRT file
+    const blob = new Blob([data.srt_content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = data.filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    showError("Failed to download SRT: " + err.message);
+  }
+});
+
 // ── Reset / New File ──────────────────────────────────
 btnReset.addEventListener("click", resetApp);
 
 function resetApp() {
   selectedFile  = null;
   lastTranscript = "";
+  lastSegments  = [];
   lastFilename  = "";
 
   // Reset drop zone
