@@ -164,22 +164,23 @@ def generate_srt(segments):
 @app.route("/download-srt", methods=["POST"])
 def download_srt():
     """Generate and return SRT file for download."""
-    data = request.get_json()
-    segments = data.get("segments", [])
-    filename = data.get("filename", "transcript").replace(".json", "")
-    
-    if not segments:
-        return jsonify({"error": "No segments provided"}), 400
-    
     try:
+        data = request.get_json()
+        segments = data.get("segments", [])
+        filename = data.get("filename", "transcript").replace(".json", "")
+        
+        if not segments:
+            return jsonify({"error": "No segments provided"}), 400
+        
         srt_content = generate_srt(segments)
         
-        return {
+        return jsonify({
             "success": True,
             "srt_content": srt_content,
             "filename": f"{filename}.srt"
-        }
+        })
     except Exception as e:
+        print(f"[ERR] SRT generation error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
