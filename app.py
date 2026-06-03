@@ -32,6 +32,12 @@ CORS(app)
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
 
 # Read model size from environment (default: base)
+# Options (speed vs accuracy):
+#   - "tiny"    : Fastest  (≈1min for 10min video)  - Lower accuracy
+#   - "small"   : Fast     (≈2min for 10min video)  - Medium accuracy
+#   - "base"    : Balanced (≈4min for 10min video)  - Good accuracy
+#   - "small"   : Slower   (≈10min for 10min video) - High accuracy
+# Set via: export WHISPER_MODEL=tiny
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
 
 print(f"[*] Loading Whisper '{WHISPER_MODEL}' model...")
@@ -81,6 +87,11 @@ def transcribe():
             task="transcribe",       # keep original language (no translation)
             verbose=False,
             word_timestamps=False,
+            fp16=True,               # Use half-precision for 2x faster
+            language=None,           # Auto-detect language
+            beam_size=1,             # Faster (1 = greedy decoding)
+            best_of=1,               # Fastest option
+            no_speech_threshold=0.4, # Skip silent sections
         )
 
         transcript = result.get("text", "").strip()
