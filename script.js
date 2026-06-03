@@ -299,24 +299,41 @@ btnDownload.addEventListener("click", () => {
 // ── Download as .srt ──────────────────────────────────
 btnDownloadSRT.addEventListener("click", async () => {
   if (!lastSegments || lastSegments.length === 0) {
-    showError("No segments available for SRT export.");
+    showError("❌ No segments available for SRT export. Make sure transcription completed successfully.");
     return;
   }
   
   try {
+    const payload = {
+      segments: lastSegments,
+      filename: lastFilename || "transcript"
+    };
+    
     const response = await fetch("/download-srt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        segments: lastSegments,
-        filename: lastFilename
-      })
+      body: JSON.stringify(payload)
     });
     
-    const data = await response.json();
+    // Check if response is valid JSON
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      throw new Error(`Server returned non-JSON response: ${response.status}`);
+    }
+    
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseErr) {
+      throw new Error(`Invalid server response (JSON parse error): ${parseErr.message}`);
+    }
     
     if (!response.ok || data.error) {
-      throw new Error(data.error || "Failed to generate SRT");
+      throw new Error(data.error || `Server error ${response.status}: Failed to generate SRT`);
+    }
+    
+    if (!data.srt_content) {
+      throw new Error("SRT content is empty - transcription may have no valid segments");
     }
     
     // Download SRT file
@@ -324,11 +341,12 @@ btnDownloadSRT.addEventListener("click", async () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = data.filename;
+    a.download = data.filename || "transcript.srt";
     a.click();
     URL.revokeObjectURL(url);
   } catch (err) {
-    showError("Failed to download SRT: " + err.message);
+    console.error("[SRT Error]", err);
+    showError(`❌ SRT Export Failed: ${err.message}`);
   }
 });
 

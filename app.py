@@ -156,20 +156,52 @@ def format_time_srt(seconds):
 
 
 def generate_srt(segments):
-    """Generate SRT subtitle content from segments."""
-    srt_content = ""
-    for idx, seg in enumerate(segments, 1):
-        # Parse timestamp strings back to floats for SRT formatting
-        start_str = seg.get("start_raw", 0)
-        end_str = seg.get("end_raw", 0)
-        
-        start_srt = format_time_srt(start_str)
-        end_srt = format_time_srt(end_str)
-        text = seg.get("text", "").strip()
-        
-        srt_content += f"{idx}\n{start_srt} --> {end_srt}\n{text}\n\n"
+    """Generate SRT subtitle content from segments with robust error handling."""
+    if not segments:
+        return ""
     
-    return srt_content.strip()
+    srt_content = ""
+    try:
+        idx = 1
+        for seg in segments:
+            # Handle both raw floats and formatted timestamps
+            if "start_raw" in seg and isinstance(seg["start_raw"], (int, float)):
+                start_val = float(seg.get("start_raw", 0))
+            else:
+                # Try to parse from formatted timestamp (MM:SS)
+                start_str = seg.get("start", "00:00")
+                try:
+                    parts = start_str.split(":")
+                    start_val = int(parts[0]) * 60 + int(parts[1]) if len(parts) >= 2 else 0
+                except:
+                    start_val = 0
+            
+            if "end_raw" in seg and isinstance(seg["end_raw"], (int, float)):
+                end_val = float(seg.get("end_raw", 0))
+            else:
+                # Try to parse from formatted timestamp (MM:SS)
+                end_str = seg.get("end", "00:00")
+                try:
+                    parts = end_str.split(":")
+                    end_val = int(parts[0]) * 60 + int(parts[1]) if len(parts) >= 2 else 0
+                except:
+                    end_val = 0
+            
+            start_srt = format_time_srt(start_val)
+            end_srt = format_time_srt(end_val)
+            text = seg.get("text", "").strip()
+            
+            # Skip empty segments
+            if not text:
+                continue
+            
+            srt_content += f"{idx}\n{start_srt} --> {end_srt}\n{text}\n\n"
+            idx += 1
+        
+        return srt_content.strip()
+    except Exception as e:
+        print(f"[ERR] SRT generation error: {e}")
+        raise
 
 
 @app.route("/download-srt", methods=["POST"])
@@ -177,13 +209,19 @@ def download_srt():
     """Generate and return SRT file for download."""
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
         segments = data.get("segments", [])
-        filename = data.get("filename", "transcript").replace(".json", "")
+        filename = data.get("filename", "transcript").replace(".json", "").replace(".srt", "")
         
         if not segments:
             return jsonify({"error": "No segments provided"}), 400
         
         srt_content = generate_srt(segments)
+        
+        if not srt_content:
+            return jsonify({"error": "No subtitle content generated"}), 400
         
         return jsonify({
             "success": True,
@@ -191,8 +229,8 @@ def download_srt():
             "filename": f"{filename}.srt"
         })
     except Exception as e:
-        print(f"[ERR] SRT generation error: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"[ERR] SRT download error: {e}")
+        return jsonify({"error": f"SRT generation failed: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
