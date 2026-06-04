@@ -61,63 +61,77 @@ def index():
 
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
-    if "file" not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-
-    file = request.files["file"]
-
-    if file.filename == "":
-        return jsonify({"error": "No file selected"}), 400
-
-    if not allowed_file(file.filename):
-        return jsonify({"error": f"File type not supported. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
-
-    # Save to a temp file
-    ext = file.filename.rsplit(".", 1)[1].lower()
-    temp_path = os.path.join(tempfile.gettempdir(), f"whisper_{uuid.uuid4().hex}.{ext}")
-
+    temp_path = None
     try:
+        # Validate file
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400
+
+        file = request.files["file"]
+        if file.filename == "":
+            return jsonify({"error": "No file selected"}), 400
+
+        if not allowed_file(file.filename):
+            return jsonify({"error": f"File type not supported. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+
+        # Clean memory before transcription
+        gc.collect()
+
+        # Save to temp file
+        ext = file.filename.rsplit(".", 1)[1].lower()
+        temp_path = os.path.join(tempfile.gettempdir(), f"whisper_{uuid.uuid4().hex}.{ext}")
         file.save(temp_path)
         print(f"[FILE] Saved to: {temp_path}")
 
-        # Transcribe with Whisper (auto language detection)
-        print("[*] Transcribing...")
-        result = model.transcribe(
-            temp_path,
-            task="transcribe",       # keep original language (no translation)
-            verbose=False,
-            word_timestamps=False,
-            fp16=True,               # Use half-precision for 2x faster
-            language=None,           # Auto-detect language
-            beam_size=1,             # Faster (1 = greedy decoding)
-            best_of=1,               # Fastest option
-            no_speech_threshold=0.4, # Skip silent sections
-        )
+        if not os.path.exists(temp_path):
+            return jsonify({"error": "File upload failed"}), 400
 
+        # Transcribe with Whisper
+        print("[*] Starting transcription...")
+        try:
+            result = model.transcribe(
+                temp_path,
+                task="transcribe",
+                verbose=False,
+                word_timestamps=False,
+                language=None,           # Auto-detect language
+                beam_size=1,             # Fastest greedy decoding
+                best_of=1,               # No sampling
+                no_speech_threshold=0.4, # Skip silent sections
+            )
+        except Exception as transcribe_err:
+            print(f"[ERR] Transcription failed: {transcribe_err}")
+            return jsonify({"error": f"Transcription error: {str(transcribe_err)}"}), 500
+
+        # Extract results
         transcript = result.get("text", "").strip()
         detected_language = result.get("language", "unknown")
         language_probability = result.get("language_probability", None)
 
         # Build segments with timestamps
         segments = []
-        for seg in result.get("segments", []):
-            start = seg.get("start", 0)
-            end = seg.get("end", 0)
-            text = seg.get("text", "").strip()
-            segments.append({
-                "start": format_time(start),
-                "end": format_time(end),
-                "start_raw": start,
-                "end_raw": end,
-                "text": text,
-            })
+        try:
+            for seg in result.get("segments", []):
+                start = seg.get("start", 0)
+                end = seg.get("end", 0)
+                text = seg.get("text", "").strip()
+                if text:  # Only add non-empty segments
+                    segments.append({
+                        "start": format_time(start),
+                        "end": format_time(end),
+                        "start_raw": float(start),
+                        "end_raw": float(end),
+                        "text": text,
+                    })
+        except Exception as seg_err:
+            print(f"[WARN] Segment processing error: {seg_err}")
 
         word_count = len(transcript.split()) if transcript else 0
         char_count = len(transcript)
 
-        print(f"[OK] Done! Language: {detected_language}, Words: {word_count}")
+        print(f"[OK] Transcription complete. Language: {detected_language}, Words: {word_count}, Segments: {len(segments)}")
 
-        return jsonify({
+        response_data = {
             "success": True,
             "transcript": transcript,
             "language": detected_language,
@@ -125,18 +139,30 @@ def transcribe():
             "segments": segments,
             "word_count": word_count,
             "char_count": char_count,
-        })
+        }
+
+        return jsonify(response_data)
 
     except Exception as e:
-        print(f"[ERR] Error: {e}")
-        return jsonify({"error": str(e)}), 500
+        print(f"[ERR] Unhandled error in transcribe: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
 
     finally:
-        # Clean up temp file
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
-        # Free memory
+        # Always cleanup
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception as cleanup_err:
+                print(f"[WARN] Could not remove temp file: {cleanup_err}")
         gc.collect()
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    """Simple health check endpoint."""
+    return jsonify({"status": "ok", "model": WHISPER_MODEL}), 200
 
 
 def format_time(seconds):
