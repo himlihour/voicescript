@@ -110,11 +110,28 @@ dropZone.addEventListener("drop", (e) => {
 });
 
 // ── Handle File Select ────────────────────────────────
+const MAX_FILE_SIZE = 200 * 1024 * 1024;  // 200MB
+const MIN_FILE_SIZE = 1024;  // 1KB
+
 function handleFileSelect(file) {
+  // Validate file type
   if (!isFileAllowed(file)) {
-    showError(`❌ Unsupported file: "${file.name}". Please use MP4, MP3, WAV, MKV, WebM, M4A, etc.`);
+    showError(`❌ Unsupported format: "${file.name}". Use: MP4, MP3, WAV, MKV, WebM, M4A, OGG, FLAC, AAC, MOV, AVI, WMA`);
     return;
   }
+  
+  // Validate file size
+  if (file.size < MIN_FILE_SIZE) {
+    showError(`❌ File too small: ${(file.size/1024).toFixed(1)}KB. Minimum: 1KB`);
+    return;
+  }
+  
+  if (file.size > MAX_FILE_SIZE) {
+    const size_mb = (file.size / (1024 * 1024)).toFixed(1);
+    showError(`❌ File too large: ${size_mb}MB. Maximum: 200MB`);
+    return;
+  }
+  
   selectedFile = file;
   hideError();
 
@@ -134,6 +151,7 @@ function handleFileSelect(file) {
 btnTranscribe.addEventListener("click", startTranscription);
 
 let progressInterval = null;
+const REQUEST_TIMEOUT = 900000;  // 15 minutes in milliseconds
 
 function updateProgressBar(percent) {
   progressBar.style.width = percent + "%";
@@ -146,7 +164,7 @@ function startProgressAnimation() {
   updateProgressBar(0);
   
   progressInterval = setInterval(() => {
-    // Gradually increase progress, slowing down as it approaches 90%
+    // Gradually increase, slowing as it approaches 90%
     const increment = Math.random() * (100 - progress) * 0.02;
     progress = Math.min(progress + increment, 90);
     updateProgressBar(Math.floor(progress));
@@ -156,14 +174,16 @@ function startProgressAnimation() {
 function completeProgress() {
   clearInterval(progressInterval);
   updateProgressBar(100);
-  // Keep it at 100% for a moment then reset
   setTimeout(() => {
     updateProgressBar(0);
   }, 500);
 }
 
 async function startTranscription() {
-  if (!selectedFile) return;
+  if (!selectedFile) {
+    showError("❌ No file selected");
+    return;
+  }
 
   // Show processing state
   processingSection.classList.remove("hidden");
@@ -174,31 +194,64 @@ async function startTranscription() {
   const formData = new FormData();
   formData.append("file", selectedFile);
 
+  let controller;
   try {
+    // Create abort controller for timeout
+    controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+    
     startProgressAnimation();
     
     const response = await fetch("/transcribe", {
       method: "POST",
       body: formData,
+      signal: controller.signal
     });
 
+    clearTimeout(timeoutId);
     completeProgress();
+
+    // Validate response
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type");
+      let error_msg = `Server error ${response.status}`;
+      
+      if (contentType && contentType.includes("application/json")) {
+        try {
+          const err_data = await response.json();
+          error_msg = err_data.error || error_msg;
+        } catch (e) {
+          // JSON parse failed, use default error
+        }
+      }
+      
+      throw new Error(error_msg);
+    }
 
     const data = await response.json();
 
-    if (!response.ok || data.error) {
-      throw new Error(data.error || `Server error ${response.status}`);
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    if (!data.success) {
+      throw new Error("Transcription failed - no data returned");
     }
 
     renderResult(data);
 
   } catch (err) {
-    // Back to upload state on error
     clearInterval(progressInterval);
     updateProgressBar(0);
     processingSection.classList.add("hidden");
     uploadSection.classList.remove("hidden");
-    showError(err.message || "Transcription failed. Is the Flask server running?");
+    
+    let error_msg = err.message || "Transcription failed";
+    if (err.name === "AbortError") {
+      error_msg = "⏱️ Request timed out (15 min max). Try a smaller file.";
+    }
+    
+    showError(`❌ ${error_msg}`);
   }
 }
 

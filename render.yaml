@@ -6,10 +6,12 @@ services:
     nativePackages:
       - ffmpeg
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "gunicorn app:app --timeout 900 --workers 1 --threads 2"
+    startCommand: "gunicorn app:app --workers 1 --threads 2 --timeout 900 --keep-alive 30 --max-requests 50"
     plan: free
     envVars:
       - key: WHISPER_MODEL
         value: tiny
-      - key: GUNICORN_CMD_ARGS
-        value: "--workers 1 --threads 2 --timeout 900 --keep-alive 30"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"

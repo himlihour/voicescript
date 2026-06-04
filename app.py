@@ -2,6 +2,7 @@ import os
 import uuid
 import tempfile
 import gc
+import sys
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
@@ -18,7 +19,7 @@ except Exception as e:
 # --- RAM Optimization for Render Free Tier (512MB limit) ---
 try:
     import torch
-    torch.set_num_threads(1)  # Restrict to 1 CPU thread to avoid RAM spikes
+    torch.set_num_threads(1)
     print("[OK] Torch CPU threads limited to 1")
 except Exception as e:
     print(f"[WARN] Failed to configure torch threads: {e}")
@@ -28,15 +29,19 @@ import whisper
 app = Flask(__name__, static_folder=".", static_url_path="")
 CORS(app)
 
-# Max upload size: 500MB (for large video files)
-app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
+# Strict upload size: 200MB (balance between Render limits and app performance)
+app.config["MAX_CONTENT_LENGTH"] = 200 * 1024 * 1024
 
-# Read model size from environment (default: base)
+# Performance settings
+MAX_FILE_SIZE_BYTES = 200 * 1024 * 1024  # 200MB
+MIN_FILE_SIZE_BYTES = 1024  # 1KB
+
+# Read model size from environment (default: tiny for speed)
 # Options (speed vs accuracy):
 #   - "tiny"    : Fastest  (≈1min for 10min video)  - Lower accuracy
 #   - "small"   : Fast     (≈2min for 10min video)  - Medium accuracy
 #   - "base"    : Balanced (≈4min for 10min video)  - Good accuracy
-#   - "small"   : Slower   (≈10min for 10min video) - High accuracy
+#   - "medium"  : Slower   (≈10min for 10min video) - High accuracy
 # Set via: export WHISPER_MODEL=tiny
 WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
 
@@ -63,7 +68,7 @@ def index():
 def transcribe():
     temp_path = None
     try:
-        # Validate file
+        # Validate file exists
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400
 
@@ -71,91 +76,112 @@ def transcribe():
         if file.filename == "":
             return jsonify({"error": "No file selected"}), 400
 
+        # Validate file type early
         if not allowed_file(file.filename):
-            return jsonify({"error": f"File type not supported. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"}), 400
+            return jsonify({"error": f"Unsupported format. Use: MP4, MP3, WAV, MKV, WebM, M4A, OGG, FLAC, AAC, MOV, AVI, WMA"}), 400
 
-        # Clean memory before transcription
+        # Validate file size
+        file.seek(0, os.SEEK_END)
+        file_size = file.tell()
+        file.seek(0)
+        
+        if file_size < MIN_FILE_SIZE_BYTES:
+            return jsonify({"error": "File too small (less than 1KB)"}), 400
+        
+        if file_size > MAX_FILE_SIZE_BYTES:
+            size_mb = file_size / (1024 * 1024)
+            return jsonify({"error": f"File too large ({size_mb:.1f}MB). Max: 200MB"}), 413
+
+        # Aggressive memory cleanup before processing
         gc.collect()
-
+        
         # Save to temp file
         ext = file.filename.rsplit(".", 1)[1].lower()
         temp_path = os.path.join(tempfile.gettempdir(), f"whisper_{uuid.uuid4().hex}.{ext}")
-        file.save(temp_path)
-        print(f"[FILE] Saved to: {temp_path}")
+        
+        try:
+            file.save(temp_path)
+        except Exception as save_err:
+            return jsonify({"error": f"Failed to save file: {str(save_err)}"}), 500
+        
+        if not os.path.exists(temp_path) or os.path.getsize(temp_path) == 0:
+            return jsonify({"error": "File upload failed or empty"}), 400
 
-        if not os.path.exists(temp_path):
-            return jsonify({"error": "File upload failed"}), 400
+        print(f"[FILE] Saved {file_size/(1024*1024):.1f}MB: {temp_path}")
 
-        # Transcribe with Whisper
-        print("[*] Starting transcription...")
+        # Transcribe with optimized settings
+        print("[*] Starting transcription with model:", WHISPER_MODEL)
         try:
             result = model.transcribe(
                 temp_path,
                 task="transcribe",
                 verbose=False,
                 word_timestamps=False,
-                language=None,           # Auto-detect language
-                beam_size=1,             # Fastest greedy decoding
-                best_of=1,               # No sampling
-                no_speech_threshold=0.4, # Skip silent sections
+                language=None,
+                beam_size=1,
+                best_of=1,
+                no_speech_threshold=0.5,  # Higher threshold = skip more silence
+                temperature=0.0,           # Deterministic for speed
+                condition_on_previous_text=False,  # Faster processing
             )
+        except MemoryError:
+            return jsonify({"error": "Out of memory. Try a smaller file or use a faster model."}), 503
         except Exception as transcribe_err:
-            print(f"[ERR] Transcription failed: {transcribe_err}")
-            return jsonify({"error": f"Transcription error: {str(transcribe_err)}"}), 500
+            err_msg = str(transcribe_err)[:100]
+            return jsonify({"error": f"Transcription error: {err_msg}"}), 500
 
-        # Extract results
-        transcript = result.get("text", "").strip()
+        # Extract and validate results
+        transcript = (result.get("text", "") or "").strip()
         detected_language = result.get("language", "unknown")
         language_probability = result.get("language_probability", None)
 
-        # Build segments with timestamps
+        # Optimize segments - remove duplicates and empty ones
         segments = []
-        try:
-            for seg in result.get("segments", []):
-                start = seg.get("start", 0)
-                end = seg.get("end", 0)
-                text = seg.get("text", "").strip()
-                if text:  # Only add non-empty segments
-                    segments.append({
-                        "start": format_time(start),
-                        "end": format_time(end),
-                        "start_raw": float(start),
-                        "end_raw": float(end),
-                        "text": text,
-                    })
-        except Exception as seg_err:
-            print(f"[WARN] Segment processing error: {seg_err}")
+        seen_texts = set()
+        
+        for seg in result.get("segments", []):
+            text = (seg.get("text", "") or "").strip()
+            if not text or text in seen_texts:
+                continue
+            
+            seen_texts.add(text)
+            segments.append({
+                "start": format_time(seg.get("start", 0)),
+                "end": format_time(seg.get("end", 0)),
+                "start_raw": float(seg.get("start", 0)),
+                "end_raw": float(seg.get("end", 0)),
+                "text": text,
+            })
 
         word_count = len(transcript.split()) if transcript else 0
         char_count = len(transcript)
 
-        print(f"[OK] Transcription complete. Language: {detected_language}, Words: {word_count}, Segments: {len(segments)}")
+        print(f"[OK] Done! Language: {detected_language} | Words: {word_count} | Segments: {len(segments)}")
 
-        response_data = {
+        # Minimal response payload for speed
+        return jsonify({
             "success": True,
             "transcript": transcript,
             "language": detected_language,
-            "language_probability": language_probability,
+            "language_probability": round(language_probability, 3) if language_probability else None,
             "segments": segments,
             "word_count": word_count,
             "char_count": char_count,
-        }
-
-        return jsonify(response_data)
+        })
 
     except Exception as e:
-        print(f"[ERR] Unhandled error in transcribe: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": f"Server error: {str(e)}"}), 500
+        print(f"[ERR] Unhandled error: {e}", file=sys.stderr)
+        return jsonify({"error": f"Server error: {str(e)[:80]}"}), 500
 
     finally:
-        # Always cleanup
+        # Aggressive cleanup
         if temp_path and os.path.exists(temp_path):
             try:
                 os.remove(temp_path)
+                print(f"[CLEANUP] Removed temp file")
             except Exception as cleanup_err:
-                print(f"[WARN] Could not remove temp file: {cleanup_err}")
+                print(f"[WARN] Cleanup failed: {cleanup_err}")
+        
         gc.collect()
 
 
